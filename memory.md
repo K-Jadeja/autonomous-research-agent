@@ -6,7 +6,6 @@ _Use this proactively for long term memory — LAST UPDATED: Feb 23, 2026_
 
 **Team:** Krishnasinh Jadeja (22BLC1211), Kirtan Sondagar (22BLC1228), Prabhu Kalyan Panda (22BLC1213)  
 **Guide:** Dr. Praveen Jaraut  
-**Capstone — VIT Bhopal**
 
 ## Architecture Target (Review 2)
 - Input: Log-Mel spectrogram (128 mels, n_fft=512, hop=256)
