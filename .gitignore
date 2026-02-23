@@ -61,3 +61,22 @@ Thumbs.db
 
 # Kaggle credentials
 kaggle.json
+
+# Project documents (source files - keep these private)
+*.pdf
+*.pptx
+*.ppt
+*.doc
+*.docx
+
+# Large media files
+*.mp4
+*.avi
+*.mov
+*.mp3
+*.wav
+
+# Model outputs (too large for git)
+*.onnx
+*.tflite
+*.pb
