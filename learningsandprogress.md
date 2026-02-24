@@ -1,1 +1,108 @@
-_Use this proactively for short term memory and to track the processes \u2014 LAST UPDATED: Feb 23, 2026_\n\n---\n\n## Session Log: Feb 23, 2026 \u2014 Pre-Kaggle Upload\n\n### What Was Done This Session:\n1. \u2705 Read `Project2.pdf` \u2014 understood Review 2 requirements (see memory.md for full details)\n2. \u2705 Read `kjadeja/baseline-crn-speechenhance` Kaggle notebook via MCP \u2014 understood full CRN architecture\n3. \u2705 Created `review2-transformer-speechenhance.ipynb` locally with 25 cells (14 code + 11 markdown)\n4. \u2705 Installed Python env + packages locally (torch, torchaudio, numpy, matplotlib, tqdm, pandas, pesq==0.0.4, pystoi)\n5. \u2705 Ran all locally-runnable cells and validated:\n   - Cell 2 (imports): \u2705 runs on CPU, GPU will be available on Kaggle T4\n   - Cell 3 (dataset class): \u2705 class defined OK\n   - Cell 4 (PositionalEncoding): \u2705 (1,188,256) \u2192 (1,188,256) OK\n   - Cell 5 (ShallowTransformerEnhancer): \u2705 2.45M params, forward pass perfect\n   - Cell 6 (attention extraction): \u2705 returns (1,4,188,188) per layer\n   - Cell 10 (Griffin-Lim waveform): \u2705 128\u00d7188 spec \u2192 2.99s wav, SI-SDR 19.15 dB\n   - Cell 13 (attention viz): \u2705 2 layers \u00d7 4 heads renders correctly\n   - SMOKE TEST (Cell 25): \u2705 loss 0.2147 \u2192 0.0769 in 10 synthetic steps\n6. \u26a0\ufe0f Session crashed before saving to Kaggle and running real training\n\n### Cells NOT Run (Kaggle-only, need real dataset):\n- Cell 4 (data extraction): needs `p7zip-full`, `/kaggle/working/` path\n- Cell 7 (training setup + data loading): needs `extract_path` variable from Cell 4\n- Cell 8 (training loop): needs dataloaders from Cell 7\n- Cell 9 (training curves): needs `history` dict from Cell 8\n- Cell 11 (full PESQ/STOI eval): needs `test_ds` from Cell 7\n- Cell 12 (eval plots): needs `results` from Cell 11\n- Cell 14 (CRN comparison): needs `avg_pesq` from Cell 12\n\n### IMMEDIATE NEXT STEPS (pick up here on restart):\n```\n1. Read memory.md to restore context\n2. Open `review2-transformer-speechenhance.ipynb`\n3. Use Kaggle MCP to save the notebook:\n   - mcp_kaggle_save_notebook with:\n     slug = 'review2-transformer-speechenhance'\n     language = 'python'\n     kernelType = 'notebook'\n     enableGpu = true\n     enableInternet = true\n     datasetDataSources = ['earth16/libri-speech-noise-dataset']\n     kernelExecutionType = 'SaveAndRunAll'\n     text = <full notebook JSON text>\n4. Monitor kernel session status (mcp_kaggle_get_notebook_session_status)\n5. Download output and check results\n6. Target: PESQ >= 3.2\n```\n\n### How To Export Notebook Text For Kaggle MCP:\n- Read the .ipynb file and serialize to JSON string\n- Pass as `text` field to `mcp_kaggle_save_notebook`\n- OR: Create a new session first, then interactively run cells\n\n### Known Working Kaggle Notebook Slug:\n- CRN Baseline: `kjadeja/baseline-crn-speechenhance` (v6, Feb 20 2026)\n- Review 2: to be created as `kjadeja/review2-transformer-speechenhance`\n\n---\n\n## Previous Session Context (carry-forward):\n\n### CRN Baseline (Review 1) — Key Learnings:\n1. Dataset: 7000 train + 105 test wav pairs from `earth16/libri-speech-noise-dataset`\n2. Log-mel: sr=16000, n_fft=512, hop=256, n_mels=128, 3s segments\n3. CRN bug fixed: mean-pool freq dim before LSTM (was 32768-dim input)\n4. CRN evaluation PESQ was approximated (no proper reconstruction)\n5. Review 1 PESQ result: ~3.1 (CRN baseline)\n\n### Review 2 Improvements Over CRN:\n- LSTM \u2192 2-layer Transformer with Pre-LN and sinusoidal PE\n- Attention maps extractable per layer+head (key Review 2 deliverable)\n- Real waveform reconstruction via `InverseMelScale(driver='gelsd')` + GriffinLim(32 iters)\n- SI-SDR metric added alongside PESQ and STOI\n- 25 epochs max (was 20), weight_decay=1e-5 added\n- Comparison cell (Cell 14) auto-generates CRN vs Transformer table\n\n### Review 3 (upcoming \u2014 Mar 18):\n- Add SileroVAD (Voice Activity Detection) integration\n- Only enhance speech frames, skip silence\n- Reduces compute and improves naturalness\n\n### Final Review (Apr 8):\n- Quantize model (INT8 or FP16)\n- Gradio demo interface\n- Latency target: <15ms per frame
+_Use this proactively for short term memory and to track the processes — LAST UPDATED: Feb 24, 2026_
+
+---
+
+## Session Log: Feb 24, 2026 — Review 2 Results & Diagnosis
+
+### What Was Done This Session:
+1. ✅ Confirmed notebook `kjadeja/review-2-cnn-transformer-speech-enhancement` (v5) STATUS: COMPLETE
+2. ✅ Extracted training metrics from Kaggle notebook log (3.5MB NDJSON)
+3. ✅ Diagnosed root cause of failure (mel spectrogram non-invertibility)
+4. ✅ Updated memory.md with full results + Review 3 fix plan
+5. ✅ Updated learningsandprogress.md (this file)
+
+### Review 2 Final Results (FAILED — needs fix):
+| Metric | Noisy | Enhanced | CRN Baseline | Target |
+|--------|-------|----------|--------------|--------|
+| PESQ   | 1.144 | **1.141** | 3.10        | ≥ 3.2  |
+| STOI   | 0.693 | **0.695** | —           | —      |
+| SI-SDR | -0.82 | **-25.58 dB** | —       | —      |
+
+Training ran all 25 epochs — val loss improved (0.1764 → 0.1485) — model IS learning.
+But the reconstruction pipeline is catastrophically broken.
+
+### Root Cause Diagnosis:
+The mel filterbank is a MANY-TO-ONE mapping — there is no exact inverse.
+`InverseMelScale(driver='gelsd')` is a least-squares pseudo-inverse that introduces
+high-frequency noise, and `GriffinLim(n_iter=32)` cannot recover phase well.
+
+When PESQ measures waveform quality, it sees the GriffinLim artifacts as severe distortion.
+SI-SDR going from -0.82 dB to -25.58 dB confirms the reconstruction is adding NOISE.
+
+**The CRN baseline PESQ=3.10 is valid because CRN uses STFT → sigmoid mask → ISTFT (no GriffinLim).**
+
+### Review 3 Fix (IMMEDIATE PRIORITY):
+Switch from MelSpectrogram to STFT. Apply mask to complex STFT. Use torch.istft for reconstruction.
+- Input shape changes from (B, 128, T) to (B, 257, T) [n_fft=512 → 257 bins]
+- Reconstruction is PERFECT (no information loss)
+- This is what CRN does and why it works
+
+See memory.md "Review 3 Plan" section for full architecture spec.
+
+---
+
+## Session Log: Feb 23, 2026 — Kaggle Upload & Training Run
+
+### What Was Done:
+1. ✅ Read `Project2.pdf` — understood Review 2 requirements
+2. ✅ Read `kjadeja/baseline-crn-speechenhance` via Kaggle MCP — understood CRN architecture
+3. ✅ Created `review2-transformer-speechenhance.ipynb` locally (25 cells, 14 code + 11 markdown)
+4. ✅ Validated all locally-runnable cells on CPU:
+   - Cell 2 (imports): ✅ runs OK
+   - Cell 3 (dataset class): ✅ defined OK
+   - Cell 4 (PositionalEncoding): ✅ (1,188,256) output shape correct
+   - Cell 5 (ShallowTransformerEnhancer): ✅ 2.45M params, forward pass correct
+   - Cell 6 (attention extraction): ✅ returns (1,4,188,188) per layer
+   - Cell 10 (Griffin-Lim waveform): ✅ 128×188 spec → 2.99s wav, SI-SDR 19.15 dB
+   - Cell 13 (attention viz): ✅ 2 layers × 4 heads renders correctly
+   - SMOKE TEST (Cell 25): ✅ loss 0.2147 → 0.0769 in 10 synthetic steps
+5. ✅ Saved clean notebook to Kaggle as `kjadeja/review-2-cnn-transformer-speech-enhancement`
+6. ✅ Debugged dataset mounting (5 versions):
+   - v1-v2: Dataset mounting via `datasetDataSources` doesn't work when updating by ID
+   - v3: paths wrong after 7z extraction
+   - v4: `num_workers=2` caused `^^` AssertionError spam between epochs
+   - v5: Used `kaggle datasets download` CLI with internet enabled — WORKED
+7. ✅ v5 ran to completion on P100-PCIE-16GB GPU
+
+### Debugging Notes (for future sessions):
+- `^^` spam = `AssertionError: can only test a child process` from `num_workers=2` DataLoader
+  cleanup between epochs — **harmless** but annoying. Fix: `num_workers=0`
+- `datasetDataSources` in `mcp_kaggle_save_notebook` DOES NOT WORK when updating by integer ID
+  (only works for new notebook creation by slug). Always use `kaggle datasets download` CLI instead.
+- 7z archives extract into nested subdirs. The `find_wav_dir()` helper auto-detects the actual
+  wav directory path.
+- `mcp_kaggle_save_notebook` with `hasId=true` + integer `id` = update existing notebook.
+  Without `hasId`, uses slug to create new notebook.
+
+---
+
+## Key Architecture Reference (ShallowTransformerEnhancer):
+```
+Input: (B, 128, T) log-mel
+  → CNN Encoder: Conv2d(1→64→128→256, 3×3, BN, ReLU)
+  → mean(freq) → (B, T, 256) → linear(256→256)
+  → PositionalEncoding(sinusoidal, d=256)
+  → 2× TransformerEncoderLayer(d=256, heads=4, ff=1024, Pre-LN, dropout=0.1)
+  → linear(256→256) → reshape → CNN Decoder(256→128→64→1)
+  → Sigmoid → mask × noisy_mel
+Params: 2,450,945 (2.45M)
+```
+
+## Phase Timeline:
+| Phase | Date | Status | PESQ |
+|-------|------|--------|------|
+| Review 1 | Jan 21 | ✅ DONE | 3.10 (CRN baseline) |
+| Review 2 | Feb 18 | ✅ DONE | 1.141 (**FAILED** — wrong pipeline) |
+| Review 3 | Mar 18 | ⏳ NEXT | Target ≥ 3.2 (STFT fix) |
+| Final | Apr 8 | ⏳ | Quantized + Gradio demo |
+
+## NEXT SESSION — Immediate Actions:
+```
+1. Read memory.md to restore context
+2. Create new notebook for Review 3 (STFT-based)
+3. Architecture change: MelSpectrogram → STFT (n_fft=512, hop=128)
+4. Input dim: 128 → 257 frequency bins
+5. Reconstruction: mask × complex STFT → torch.istft
+6. Target PESQ ≥ 3.2
+7. Kaggle slug: kjadeja/review-3-stft-transformer-speech-enhancement
+```

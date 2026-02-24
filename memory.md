@@ -1,4 +1,4 @@
-_Use this proactively for long term memory — LAST UPDATED: Feb 23, 2026_
+_Use this proactively for long term memory — LAST UPDATED: Feb 24, 2026_
 
 ---
 
@@ -52,8 +52,8 @@ _Use this proactively for long term memory — LAST UPDATED: Feb 23, 2026_
 
 ## Review 2 Notebook: `review2-transformer-speechenhance`
 **Local file:** `d:\Workspace\kaggle agent\review2-transformer-speechenhance.ipynb`  
-**Kaggle target slug:** `kjadeja/review2-transformer-speechenhance`  
-**Status:** LOCAL VALIDATION COMPLETE. Not yet saved/run on Kaggle.
+**Kaggle notebook:** `kjadeja/review-2-cnn-transformer-speech-enhancement` (ID: 110344085, v5)  
+**Status:** COMPLETE — 25 epochs, PESQ=1.141 (**FAILED**, see Review 2 Results section)**
 
 ### Cell Map (25 total cells):
 | # | Type | Name | Local Status |
@@ -128,24 +128,105 @@ Dataset extraction uses `!7z x ... -o{extract_path}` from `earth16/libri-speech-
 - Cell 14 (comparison) uses `avg_pesq` from Cell 12 — must run in sequence
 - Cell 4 (extraction) is Kaggle-only, hardcodes paths for the `earth16/libri-speech-noise-dataset` dataset
 - `norm_first=True` in TransformerEncoderLayer = Pre-LN (more training stable than standard Post-LN)
+- **MEL SPECTROGRAM IS NON-INVERTIBLE** — `InverseMelScale + GriffinLim(32)` introduces catastrophic artifacts (see Review 2 Results below)
 
-### Next Steps:
-1. **Save notebook to Kaggle** using Kaggle MCP (`mcp_kaggle_save_notebook`)
-2. Create a Kaggle notebook session and run cells 1→14 interactively via MCP
-3. Verify PESQ ≥ 3.2 after training
-4. Save final results and update `review2_summary.json`
-5. Update this memory with final results
+---
 
-### Kaggle MCP Save Parameters (to use):
+## Review 2 Results — COMPLETED Feb 24, 2026
+
+**Kaggle Notebook:** `kjadeja/review-2-cnn-transformer-speech-enhancement` (ID: 110344085, v5)  
+**Hardware:** P100-PCIE-16GB GPU, 25 epochs completed (no early stopping triggered)
+
+### Metrics (on 105 test samples):
+| Metric | Noisy Input | Enhanced (Ours) | CRN Baseline |
+|--------|------------|-----------------|--------------|
+| PESQ   | 1.144       | **1.141**        | 3.10         |
+| STOI   | 0.693       | **0.695**        | —            |
+| SI-SDR | -0.82 dB    | **-25.58 dB**    | —            |
+
+**Best epoch:** 25 | **Best val loss (L1):** 0.1485  
+**Val loss progress:** 0.1764 (ep1) → 0.1485 (ep25) — model WAS learning
+
+### Root Cause of Failure:
+**The mel spectrogram is non-invertible.** The evaluation chain:
+```
+predicted mel mask × noisy mel → expm1 → InverseMelScale(driver='gelsd') → GriffinLim(n_iter=32)
+```
+introduces catastrophic phase artifacts. `InverseMelScale` is an approximate pseudo-inverse of the
+mel filterbank (many-to-one mapping), and GriffinLim(32 iters) cannot adequately recover phase.
+Result: SI-SDR degrades from -0.82 → -25.58 dB even though val loss improved.
+
+**The CRN baseline uses complex STFT → ISTFT (phase-preserving), which explains its PESQ=3.10.**
+
+### Output Files Saved on Kaggle:
+- `transformer_best.pth` — best checkpoint (val=0.1485, ep25)
+- `ckpt_ep5/10/15/20/25.pth` — periodic checkpoints (all 5 exist)
+- `attention_weights.png` — self-attention heatmaps (2 layers × 4 heads)
+- `training_curves.png` — train/val L1 loss over 25 epochs
+- `review2_summary.json` — full metric JSON
+
+---
+
+## Review 3 Plan — TARGET: Fix Reconstruction Pipeline (Mar 18)
+
+### Core Fix: Switch from Mel Spectrogram → STFT
+**Old pipeline (broken):**
+```
+MelSpectrogram → mask → InverseMelScale → GriffinLim  ← lossy, non-invertible
+```
+**New pipeline:**
+```
+STFT (n_fft=512, hop=128) → magnitude → mask → ISTFT with original phase ← lossless!
+```
+
+### Architecture Changes for Review 3:
+1. **Input:** STFT magnitude `|X(t,f)|` shape `(B, 257, T)` instead of mel `(B, 128, T)`
+2. **Model:** Update CNN encoder input dim (1×257 instead of 1×128)
+3. **Output:** Mask applied to STFT magnitude → ISTFT with noisy phase
+4. **Loss:** L1 on STFT magnitude domain (or MultiResolutionSTFTLoss)
+5. **Reconstruction:**
+   ```python
+   noisy_stft = torch.stft(noisy_wav, n_fft=512, hop_length=128, return_complex=True)
+   mag = noisy_stft.abs()  # (B, 257, T)
+   mask = model(mag)       # (B, 257, T) in [0,1]
+   enhanced_stft = mask * noisy_stft  # apply mask to complex STFT
+   enhanced_wav = torch.istft(enhanced_stft, n_fft=512, hop_length=128)  # PERFECT reconstruction
+   ```
+6. **Optional add: SileroVAD** — detect speech frames, only enhance those
+7. **Optional: Move to waveform-level Dice/loss** (SISDR loss directly)
+
+### Secondary Fixes:
+- Reduce to `num_workers=0` (eliminates `^^` AssertionError spam from DataLoader cleanup)
+- GriffinLim entirely removed (not needed with STFT approach)
+- PESQ/STOI computed directly on `enhanced_wav` (ground truth waveform not just spectrogram)
+
+### Kaggle Notebook Strategy for Review 3:
+- Slug: `kjadeja/review-3-stft-transformer-speech-enhancement`
+- Enable internet for dataset download (same `earth16/libri-speech-noise-dataset`)
+- `enableGpu = true` (P100)
+- Same `kaggle datasets download` CLI approach (dataset mounting is broken for slug-based saves)
+- `kernelExecutionType = "SaveAndRunAll"`
+
+### Known Working MCP Save Template (do NOT change these):
 ```json
 {
-  "slug": "review2-transformer-speechenhance",
+  "hasId": true,
+  "id": <integer ID>,
   "language": "python",
   "kernelType": "notebook",
-  "isPrivate": false,
   "enableGpu": true,
   "enableInternet": true,
-  "datasetDataSources": ["earth16/libri-speech-noise-dataset"],
-  "kernelExecutionType": "SaveAndRunAll"
+  "kernelExecutionType": "SaveAndRunAll",
+  "text": "<notebook JSON string>"
 }
 ```
+**WARNING:** `datasetDataSources` does NOT work when updating by ID. Use `kaggle datasets download` CLI instead.
+
+---
+
+## Kaggle Notebooks Registry
+| Notebook | Kaggle Slug | ID | Status |
+|----------|-------------|-----|--------|
+| CRN Baseline (R1) | `kjadeja/baseline-crn-speechenhance` | — | COMPLETE, PESQ=3.10 |
+| Transformer R2 | `kjadeja/review-2-cnn-transformer-speech-enhancement` | 110344085 | COMPLETE, PESQ=1.141 (**FAILED**) |
+| STFT Transformer R3 | TBD | — | NOT STARTED |
