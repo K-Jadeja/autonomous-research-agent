@@ -1,4 +1,5 @@
-"""Apply all 4 bug fixes to review3-stft-transformer.ipynb on disk."""
+"""Apply all 4 bug fixes to review3-stft-transformer.ipynb on disk.
+Source is stored as a LIST of strings (one per line)."""
 import json
 
 with open('review3-stft-transformer.ipynb', 'r', encoding='utf-8') as f:
@@ -9,37 +10,61 @@ fixes_applied = []
 for cell in nb['cells']:
     if cell['cell_type'] != 'code':
         continue
-    src = cell['source']
-    original = src
+    lines = cell['source']  # list of strings
 
-    # Fix 1: total_mem -> getattr (safe for Python 3.12)
-    old_vram = "print(f'GPU: {torch.cuda.get_device_name(0)} | VRAM: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f}GB')"
-    new_vram = """props = torch.cuda.get_device_properties(0)
-    vram = getattr(props, 'total_memory', getattr(props, 'total_mem', 0))
-    print(f'GPU: {torch.cuda.get_device_name(0)} | VRAM: {vram / 1e9:.1f}GB')"""
-    if old_vram in src:
-        src = src.replace(old_vram, new_vram)
+    # Fix 1: total_mem -> getattr (Cell 1)
+    new_lines = []
+    fixed1 = False
+    for line in lines:
+        if 'total_mem' in line and 'getattr' not in line and 'get_device_properties' in line:
+            new_lines.append("    props = torch.cuda.get_device_properties(0)\n")
+            new_lines.append("    vram = getattr(props, 'total_memory', getattr(props, 'total_mem', 0))\n")
+            new_lines.append("    print(f'GPU: {torch.cuda.get_device_name(0)} | VRAM: {vram / 1e9:.1f}GB')\n")
+            fixed1 = True
+        else:
+            new_lines.append(line)
+    if fixed1:
+        lines = new_lines
         fixes_applied.append('total_mem -> getattr')
 
-    # Fix 2: Remove verbose=False from ReduceLROnPlateau (removed in Python 3.12)
-    if ', verbose=False' in src:
-        src = src.replace(', verbose=False', '')
+    # Fix 2: Remove verbose=False (Cell 6)
+    new_lines = []
+    fixed2 = False
+    for line in lines:
+        if 'verbose=False' in line:
+            line = line.replace(', verbose=False', '')
+            fixed2 = True
+        new_lines.append(line)
+    if fixed2:
+        lines = new_lines
         fixes_applied.append('removed verbose=False')
 
-    # Fix 3: Save val_loss as Python float (prevents numpy UnpicklingError)
-    if "'val_loss': va_loss}" in src:
-        src = src.replace("'val_loss': va_loss}", "'val_loss': float(va_loss)}")
+    # Fix 3: float(va_loss) (Cell 7)
+    new_lines = []
+    fixed3 = False
+    for line in lines:
+        if "'val_loss': va_loss}" in line:
+            line = line.replace("'val_loss': va_loss}", "'val_loss': float(va_loss)}")
+            fixed3 = True
+        new_lines.append(line)
+    if fixed3:
+        lines = new_lines
         fixes_applied.append('val_loss -> float(va_loss)')
 
-    # Fix 4: Add weights_only=False to torch.load (PyTorch 2.6+)
-    old_load = 'torch.load(CKPT, map_location=device)'
-    new_load = 'torch.load(CKPT, map_location=device, weights_only=False)'
-    if old_load in src and 'weights_only' not in src:
-        src = src.replace(old_load, new_load)
+    # Fix 4: weights_only=False (Cell 9)
+    new_lines = []
+    fixed4 = False
+    for line in lines:
+        if 'torch.load(CKPT, map_location=device)' in line and 'weights_only' not in line:
+            line = line.replace('torch.load(CKPT, map_location=device)',
+                               'torch.load(CKPT, map_location=device, weights_only=False)')
+            fixed4 = True
+        new_lines.append(line)
+    if fixed4:
+        lines = new_lines
         fixes_applied.append('added weights_only=False')
 
-    if src != original:
-        cell['source'] = src
+    cell['source'] = lines
 
 with open('review3-stft-transformer.ipynb', 'w', encoding='utf-8') as f:
     json.dump(nb, f, indent=1)

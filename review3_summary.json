@@ -1,0 +1,27 @@
+{
+  "review": 3,
+  "run": "local_eval",
+  "model": "STFTTransformerEnhancer",
+  "pipeline": "STFT (n_fft=512, hop=256) \u2192 mask \u2192 ISTFT",
+  "params": 2451457,
+  "checkpoint": {
+    "epoch": 15,
+    "val_loss": 0.10495651750402017
+  },
+  "test_samples": 105,
+  "metrics": {
+    "pesq_noisy": 1.163,
+    "pesq_enhanced": 1.089,
+    "stoi_noisy": 0.7225,
+    "stoi_enhanced": 0.6216,
+    "sisdr_noisy_dB": -0.25,
+    "sisdr_enhanced_dB": -1.65
+  },
+  "comparison": {
+    "R1_CRN_PESQ_estimated": 3.1,
+    "R2_TransMel_PESQ": 1.141,
+    "R2_TransMel_SISDR_dB": -25.58,
+    "R3_TransSTFT_PESQ": 1.089,
+    "R3_TransSTFT_SISDR_dB": -1.65
+  }
+}

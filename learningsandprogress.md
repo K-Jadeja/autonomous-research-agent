@@ -2,6 +2,89 @@ _Use this proactively for short term memory and to track the processes — LAST 
 
 ---
 
+## Session Log: Feb 24, 2026 (Continued) — R3 Eval Complete
+
+### What Was Done This Session:
+1. ✅ Created eval-only notebook `kjadeja/review-3-eval-stft-transformer` (ID: 110458458)
+2. ✅ Pushed v1-v3 to Kaggle (v1: no inputs mounted, v2: syntax error, v3: KeyError on `ckpt['model']`)
+3. ✅ Root cause of Kaggle eval failure: v4 re-ran training and only produced `ckpt_ep5.pth` (raw state_dict, no wrapper dict). The v3 best checkpoint was overwritten.
+4. ✅ Downloaded v3's `stft_transformer_best.pth` directly from Kaggle (epoch 15, val=0.1050, 11.9 MB)
+5. ✅ Downloaded test.7z (40.3 MB) + y_test.7z (36.1 MB) from `earth16/libri-speech-noise-dataset`
+6. ✅ **Ran full eval locally on CPU** — 105 test samples
+7. ✅ Saved `review3_summary.json`
+8. ✅ Updated memory.md
+
+### R3 Eval Results (LOCAL, CPU):
+| Metric | Noisy | Enhanced (R3) | Δ |
+|--------|-------|---------------|---|
+| PESQ   | 1.163 | **1.089**     | **-0.074** |
+| STOI   | 0.722 | **0.622**     | **-0.1009** |
+| SI-SDR | -0.25 dB | **-1.65 dB** | **-1.40 dB** |
+
+**All metrics WORSE than noisy input.** The model actually degrades speech quality.
+
+### Review Comparison Table:
+| Review | Pipeline | PESQ | STOI | SI-SDR | Params |
+|--------|----------|------|------|--------|--------|
+| R1 CRN | Mel (estimated) | ~3.10 | — | — | ~2.5M |
+| R2 Transformer | Mel+GriffinLim | 1.141 | 0.695 | -25.58 dB | 2.45M |
+| R3 Transformer | STFT+ISTFT | 1.089 | 0.622 | -1.65 dB | 2.45M |
+| Noisy baseline | — | 1.163 | 0.722 | -0.25 dB | — |
+
+### Key Insights:
+1. **STFT fix worked for reconstruction** — SI-SDR went from -25.58 → -1.65 dB (massive improvement)
+2. **The model itself is the problem** — it degrades audio instead of enhancing it
+3. **Architecture bottleneck confirmed**: `mean(dim=2)` collapses 257 freq bins → transformer has zero frequency resolution → decoder cannot produce meaningful spectral masks
+4. **Loss barely improved** (0.1072 → 0.1050, 2%) because the model converges to near-identity mask
+5. **Next steps needed**: Fix frequency handling — either keep freq dimension through transformer, or use CRN-style architecture with STFT pipeline
+
+### Files Created/Modified:
+- `run_eval_local.py` — local eval script (soundfile backend, CPU)
+- `review3_summary.json` — eval metrics JSON
+- `build_eval_nb.py` — Kaggle eval notebook generator
+- `inspect_output.py` — helper to inspect Kaggle output files
+- `ckpt_dl/stft_transformer_best.pth` — downloaded checkpoint
+- `data/test/`, `data/y_test/` — test audio files (105 pairs)
+
+---
+
+## Session Log: Feb 25, 2026 — Review 3 Training Results + v4 Push
+
+### What Was Done This Session:
+1. ✅ Created `review3-stft-transformer.ipynb` locally (18 cells, STFT-based pipeline)
+2. ✅ Validated locally via `validate_r3.py` (STFT roundtrip error: 7.15e-07, 2.45M params)
+3. ✅ Pushed to Kaggle as `kjadeja/review-3-stft-transformer-speech-enhancement` (ID: 110421493)
+4. ✅ Debugged 3 PyTorch/Python 3.12 compat issues across v1-v3:
+   - v1: `total_mem` → `total_memory` (getattr fallback)
+   - v2: `verbose=False` removed from ReduceLROnPlateau (Python 3.12)
+   - v3: `torch.load weights_only=True` blocks numpy globals in checkpoint
+5. ✅ v3 training COMPLETED: 25 epochs, best_ep=15, best_val=0.1050, ~7291s
+6. ✅ Analyzed training results: loss barely moved (0.1072→0.1050, 2% improvement)
+7. ✅ Diagnosed architecture bottleneck (mean pooling destroys frequency info)
+8. ✅ Fixed all 4 bugs + pushed v4 (will get PESQ/STOI/SI-SDR metrics)
+9. ✅ Updated memory.md with R3 results + compat issues
+
+### R3 v3 Training Results:
+- Val loss: 0.1072 → 0.1050 (only 2% improvement, concerning)
+- Compare R2: 0.1764 → 0.1485 (16% improvement)
+- Each epoch: ~293s, total: ~7291s (~2 hours)
+- LR schedule: 1e-3 → 5e-4 (ep11) → 2.5e-4 (ep21)
+- Early stopping triggered at epoch 25 (patience 10 exhausted)
+
+### Architecture Bottleneck Analysis:
+The model barely learned because `mean(dim=2)` collapses all 257 frequency bins into
+one vector per time step. The transformer only models temporal patterns, not spectral ones.
+The decoder receives frequency-uniform features and must reconstruct a frequency-dependent
+mask purely from its CNN weight patterns — this severely limits capacity.
+
+### v4 Status: RUNNING on Kaggle
+- All 4 fixes applied (getattr, no verbose, float(va_loss), weights_only=False)
+- Will retrain (same architecture) + eval → get PESQ/STOI/SI-SDR
+- Expected runtime: ~2.5 hours (2h training + 30min eval)
+- URL: https://www.kaggle.com/code/kjadeja/review-3-stft-transformer-speech-enhancement
+
+---
+
 ## Session Log: Feb 24, 2026 — Review 2 Results & Diagnosis
 
 ### What Was Done This Session:
