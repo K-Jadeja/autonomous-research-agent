@@ -231,6 +231,7 @@ STFT (n_fft=512, hop=128) → magnitude → mask → ISTFT with original phase �
 | Transformer R2 | `kjadeja/review-2-cnn-transformer-speech-enhancement` | 110344085 | COMPLETE, PESQ=1.141 (**FAILED**) |
 | STFT Transformer R3 | `kjadeja/review-3-stft-transformer-speech-enhancement` | 110421493 | v3 trained 25ep, eval COMPLETE |
 | R3 Eval Only | `kjadeja/review-3-eval-stft-transformer` | 110458458 | Eval ran locally instead (Kaggle input mount issues) |
+| R3 DPT | `kjadeja/review-3-dpt-stft-speech-enhancement` | 110473038 | v1 RUNNING (training + eval SaveAndRunAll) |
 
 ---
 
@@ -298,6 +299,62 @@ Total: 7291s (~2h), ~293s/epoch
 
 **R3 vs R2:** SI-SDR massively improved (-1.65 vs -25.58 dB) due to STFT fix, but PESQ/STOI still bad.
 The STFT reconstruction is lossless — the model itself is the problem.
+
+---
+
+## Review 3 DPT — Dual-Path Transformer Fix (In Progress)
+
+**Kaggle:** `kjadeja/review-3-dpt-stft-speech-enhancement` (ID: 110473038)
+**Status:** v1 RUNNING on P100 (SaveAndRunAll)
+**URL:** https://www.kaggle.com/code/kjadeja/review-3-dpt-stft-speech-enhancement
+
+### Architecture: DPTSTFTEnhancer
+```
+Input: (B, 1, 257, T) ← log1p(STFT magnitude)
+  → CNN Encoder (stride 2×2 on freq): (B, 128, 65, T)
+    Conv2d(1→32, k=3, s=(2,1), p=1) + BN + ReLU
+    Conv2d(32→128, k=3, s=(2,1), p=1) + BN + ReLU
+  → 2 × DualPathBlock:
+    Freq-Transformer: TransformerEncoderLayer(128, 4, 512, norm_first=True)
+      reshapes to (B*T, 65, 128) — attend across 65 freq sub-bands per time step
+    Time-Transformer: TransformerEncoderLayer(128, 4, 512, norm_first=True)
+      reshapes to (B*65, T, 128) — attend across T time frames per freq bin
+  → Additive skip connection from encoder output
+  → F.interpolate (bilinear) back to (B, 128, 257, T)
+  → CNN Decoder:
+    Conv2d(128→64, k=3, p=1) + BN + ReLU
+    Conv2d(64→1, k=1) + Sigmoid
+Output: mask (B, 257, T) in [0, 1]
+Reconstruction: mask × noisy_mag → exp(j·noisy_phase) → ISTFT → waveform
+Params: 904,705 (0.90M) — 63% smaller than R3v1's 2.45M
+```
+
+### Architecture Breakdown:
+- Encoder: 37,632 (4.2%)
+- DPT blocks: 793,088 (87.7%)
+- Decoder: 73,985 (8.2%)
+
+### Training Config:
+- batch_size=8, MAX_EPOCHS=30, patience=12
+- Adam lr=1e-3, weight_decay=1e-5
+- 3-epoch linear LR warmup, then ReduceLROnPlateau(factor=0.5, patience=5)
+- Grad clip: max_norm=5.0
+- L1 loss on log1p(magnitude) — same as R3v1 for fair comparison
+- STFT: n_fft=512, hop_length=256, N_FREQ=257, SR=16000, MAX_LEN=48000
+
+### Why DPT Fixes R3v1:
+- R3v1: `mean(dim=2)` collapses 257 freq bins → zero frequency resolution → near-identity mask
+- DPT: Alternating freq+time transformers give FULL spectral+temporal resolution
+- Validated locally: mask range [0.14, 0.72] (not identity!) vs R3v1 which was stuck near 0.5
+- Model is 63% SMALLER but has far more representational power for spectral masking
+
+### Files:
+- `build_r3_dpt_nb.py` — notebook generator script
+- `kaggle_r3_dpt_nb.json` — Kaggle push payload
+- `dpt_nb_text.txt` — extracted notebook text (26,655 chars)
+- `validate_cells.py` — syntax validation script
+
+---
 
 ### Critical Observation — Loss Barely Moved:
 - Val loss: 0.1072 → 0.1050 = **only 2% improvement** over 25 epochs

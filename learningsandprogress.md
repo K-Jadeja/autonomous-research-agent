@@ -1,4 +1,42 @@
-_Use this proactively for short term memory and to track the processes — LAST UPDATED: Feb 24, 2026_
+_Use this proactively for short term memory and to track the processes — LAST UPDATED: Feb 25, 2026_
+
+---
+
+## Session Log: Feb 25, 2026 (Continued) — R3 DPT Notebook Pushed
+
+### What Was Done:
+1. ✅ Diagnosed R3v1 failure: `mean(dim=2)` collapses frequency → near-identity mask
+2. ✅ Designed Dual-Path Transformer (DPT) architecture: 904K params (0.90M)
+3. ✅ Created `build_r3_dpt_nb.py` — generates 19-cell notebook (11 code + 8 markdown)
+4. ✅ Built notebook: 26,655 chars, validated all 11 code cells via ast.parse
+5. ✅ Validated model locally: shapes OK, mask range [0.14, 0.72] (not identity)
+6. ✅ Pushed to Kaggle: `kjadeja/review-3-dpt-stft-speech-enhancement` (ID: 110473038, v1)
+7. ⏳ Training RUNNING on P100 (SaveAndRunAll)
+
+### Architecture Decision:
+Chose Option A: Fix the architecture (Dual-Path Transformer) over:
+- Option B: Pure CNN (U-Net/CRN) — would miss capstone's transformer requirement
+- Option C: Abandon transformer approach — not acceptable for capstone
+- Option D: Hybrid LSTM + transformer — too complex
+
+### DPT Key Design Choices:
+- d_model=128, nhead=4, dim_ff=512, num_dp_blocks=2
+- CNN encoder stride (2,1) × 2 on freq → F'=65 bins (manageable attention matrices)
+- Time dimension preserved (T=188 for 3s audio)
+- Additive skip from encoder to post-DP blocks (residual learning)
+- F.interpolate bilinear upsample from 65→257 freq bins
+- 3-epoch LR warmup (new for transformer stability)
+
+### Expected Timeline:
+- Training: ~4-6 hours on P100
+- Eval: ~30 min (105 test samples)
+- Target: PESQ > 1.163 (noisy baseline) — any improvement validates the architecture
+
+### Next Steps:
+1. Monitor training completion
+2. Download results / checkpoint
+3. If PESQ > noisy baseline → success, update capstone docs
+4. If still failing → may need to try pure CNN approach or deeper DPT
 
 ---
 
