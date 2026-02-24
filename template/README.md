@@ -29,9 +29,7 @@ Place your research proposal document in the root folder:
 **The agent will read this to understand your project!**
 
 ### Step 3: Configure Kaggle MCP
-1. Get your Kaggle API credentials from https://www.kaggle.com/settings/account
-2. Place `kaggle.json` in `~/.kaggle/` (Linux/Mac) or `%USERPROFILE%\.kaggle\` (Windows)
-3. Update `.vscode/mcp.json` with your Kaggle username
+1. just type `/mcp auth kaggle` in your copilot chat
 
 ---
 
