@@ -80,3 +80,8 @@ kaggle.json
 *.onnx
 *.tflite
 *.pb
+
+# Binary executables and installers
+*.exe
+*.msi
+pandoc_bin/

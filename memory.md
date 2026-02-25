@@ -516,6 +516,24 @@ This suggests the test data is being loaded differently (possibly different rand
 - `dpt_v2_nb_text.txt` — 28,465 chars, 19 cells (regenerated Feb 26)
 - `smoke_test.py` — local validation harness (tests imports, dataset class, model class, forward pass, loss, SI-SDR)
 
+### v2 Output Image Analysis (crn_output/ and dpt_output/):
+
+**training_curves.png** (1500×750 px, two subplots side-by-side):
+- Left subplot: Training Loss (blue line) — starts high, descends steadily
+  - CRN: ~0.073 → 0.054 over 30 epochs (~27% reduction)
+  - DPT: ~0.061 → 0.053 over 30 epochs (smoother due to 3-ep warmup)
+- Right subplot: Validation Loss (orange line) — tracks training closely, no overfitting gap
+  - CRN: ~0.068 → 0.0534 (best ep30); LR dropped 1e-3→5e-4 at ep29
+  - DPT: ~0.059 → 0.0513 (best ep29); LR stayed at 1e-3 entire run (still learning at end)
+- Key contrast with v1: v1 curves plateaued flat at ~0.100; v2 curves show steady descent → crop fix was the bottleneck
+
+**spectrogram_comparison.png** (2100×1500 px, three panels side-by-side per test sample):
+- Colour scale: dark purple = low energy (noise floor/silence), bright/yellow = high energy (speech harmonics)
+- Left panel (Noisy): brightness≈123, warm_offset=−21 — broadband noise fills inter-harmonic gaps; no clean structure
+- Middle panel (Enhanced): brightness≈146, warm_offset=−14 — speech harmonics emerge as vertical striations; inter-harmonic noise attenuated; spectral distribution shifts toward clean
+- Right panel (Clean target): brightness≈128, warm_offset=−12 — sharp harmonic bands, dark pauses, formant trajectories visible
+- DPT vs CRN: effectively identical visual quality; DPT marginally sharper harmonic definition in mid-freq (500–3000 Hz) region consistent with +0.062 PESQ advantage
+
 ### v2.1 Fix — torchaudio.info Removed (Feb 26, 2026)
 **Error:** `AttributeError: module 'torchaudio' has no attribute 'info'`
 **Root cause:** Kaggle's newer torchaudio removed the `info()` function entirely.

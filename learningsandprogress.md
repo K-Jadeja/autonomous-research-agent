@@ -483,13 +483,28 @@ Params: 2,450,945 (2.45M)
 | Review 3 | Mar 18 | ⏳ NEXT | Target ≥ 3.2 (STFT fix) |
 | Final | Apr 8 | ⏳ | Quantized + Gradio demo |
 
-## NEXT SESSION — Immediate Actions:
+## NEXT SESSION — Immediate Actions (post-Review-3):
 ```
-1. Read memory.md to restore context
-2. Create new notebook for Review 3 (STFT-based)
-3. Architecture change: MelSpectrogram → STFT (n_fft=512, hop=128)
-4. Input dim: 128 → 257 frequency bins
-5. Reconstruction: mask × complex STFT → torch.istft
-6. Target PESQ ≥ 3.2
-7. Kaggle slug: kjadeja/review-3-stft-transformer-speech-enhancement
+1. Read memory.md to restore context (v2 results are COMPLETE — best model is DPT v2)
+2. VAD integration: add SileroVAD to DPT v2 pipeline
+3. Quantization: torch.quantization INT8 on DPT v2 (0.9M params)
+4. Latency benchmark: measure per-frame inference time, target < 15ms
+5. Gradio demo: upload noisy WAV → enhanced WAV playback
+6. Extended eval: test on DEMAND / VCTK-DEMAND for generalization
 ```
+
+## Output Image Notes (v2 notebooks — Feb 26, 2026):
+
+### training_curves.png (both models, 1500×750 px):
+- Two subplots: left = train loss (blue), right = val loss (orange)
+- **CRN v2:** val 0.0682→0.0534 over 30 epochs; LR dropped to 5e-4 at ep29; both curves descend together (no overfitting)
+- **DPT v2:** val 0.0593→0.0513 over 30 epochs; LR stayed at 1e-3 the entire run (still actively learning at end); smoother initial descent due to 3-epoch warmup
+- v1 contrast: v1 curves were flat at ~0.100 (misaligned crops); v2 curves show steady ~27% descent — visual proof the crop fix was the root cause
+
+### spectrogram_comparison.png (both models, 2100×1500 px):
+- Three panels: Noisy | Enhanced | Clean (same test samples, stacked per-sample rows)
+- Colour: dark purple = noise floor/silence; bright/yellow = speech energy
+- **Noisy (brightness 123):** broadband noise fills inter-harmonic gaps; no harmonic structure visible
+- **Enhanced (brightness 146):** vertical harmonic striations emerge; inter-harmonic noise suppressed;  warm_offset improves −21 → −14 (toward clean's −12)
+- **Clean (brightness 128):** sharp harmonic bands, dark pauses, formant curves
+- DPT vs CRN enhanced panels: near-identical; DPT has marginally sharper mid-freq (500–3kHz) structure correlating with +0.062 PESQ

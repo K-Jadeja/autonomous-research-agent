@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architecture Diagrams — CRN vs DPT</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #0d0f14;
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 40px 24px;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #94a3b8;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    text-align: center;
+    color: #475569;
+    font-size: 0.85rem;
+    margin-bottom: 56px;
+    font-weight: 400;
+  }
+
+  .diagrams-wrapper {
+    display: flex;
+    gap: 40px;
+    max-width: 1300px;
+    margin: 0 auto;
+    align-items: flex-start;
+  }
+
+  .arch-card {
+    flex: 1;
+    background: #131720;
+    border-radius: 20px;
+    border: 1px solid #1e2535;
+    padding: 36px 28px 40px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .arch-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 20px 20px 0 0;
+  }
+
+  .arch-card.crn::before { background: linear-gradient(90deg, #3b82f6, #6366f1); }
+  .arch-card.dpt::before { background: linear-gradient(90deg, #10b981, #06b6d4); }
+
+  .arch-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .arch-card.crn .arch-title { color: #818cf8; }
+  .arch-card.dpt .arch-title { color: #34d399; }
+
+  .arch-subtitle {
+    font-size: 0.78rem;
+    color: #475569;
+    margin-bottom: 6px;
+    font-weight: 400;
+  }
+
+  .arch-meta {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+
+  .badge {
+    font-size: 0.72rem;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+
+  .badge-params-crn  { background: #1e2a45; color: #93c5fd; border: 1px solid #2d3f6080; }
+  .badge-params-dpt  { background: #0d2e26; color: #6ee7b7; border: 1px solid #1a4d3880; }
+  .badge-lstm        { background: #2d1b4e; color: #c4b5fd; border: 1px solid #4c2d8080; }
+  .badge-transformer { background: #0c2e3a; color: #67e8f9; border: 1px solid #164e6380; }
+  .badge-warn        { background: #3b1a0e; color: #fb923c; border: 1px solid #6b2d1080; }
+  .badge-ok          { background: #0a2e1a; color: #4ade80; border: 1px solid #14532d80; }
+
+  /* --- Pipeline --- */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  .block {
+    width: 100%;
+    border-radius: 12px;
+    padding: 14px 18px;
+    position: relative;
+  }
+
+  .block-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+
+  .block-detail {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: #94a3b8;
+    line-height: 1.5;
+  }
+
+  /* Block colour themes */
+  .b-input    { background: #1a1f2e; border: 1px solid #2d3748; }
+  .b-stft     { background: #1a1f35; border: 1px solid #2d3f70; }
+  .b-enc-crn  { background: #1a1a35; border: 1px solid #3730a3; }
+  .b-enc-dpt  { background: #0f2d25; border: 1px solid #065f46; }
+  .b-lstm     { background: #1e1635; border: 1px solid #4c1d95; }
+  .b-dpath    { background: #0c2838; border: 1px solid #0e4a6a; }
+  .b-freq     { background: #0d2630; border: 1px solid #155e75; border-left: 3px solid #06b6d4; }
+  .b-time     { background: #0d2630; border: 1px solid #155e75; border-left: 3px solid #67e8f9; }
+  .b-dec-crn  { background: #1a1a35; border: 1px solid #3730a3; }
+  .b-dec-dpt  { background: #0f2d25; border: 1px solid #065f46; }
+  .b-mask     { background: #1f2a1a; border: 1px solid #365314; }
+  .b-out      { background: #1a251a; border: 1px solid #14532d; }
+
+  .b-input    .block-label { color: #94a3b8; }
+  .b-stft     .block-label { color: #7dd3fc; }
+  .b-enc-crn  .block-label { color: #a5b4fc; }
+  .b-enc-dpt  .block-label { color: #6ee7b7; }
+  .b-lstm     .block-label { color: #c4b5fd; }
+  .b-dpath    .block-label { color: #38bdf8; }
+  .b-freq     .block-label { color: #22d3ee; }
+  .b-time     .block-label { color: #67e8f9; }
+  .b-dec-crn  .block-label { color: #a5b4fc; }
+  .b-dec-dpt  .block-label { color: #6ee7b7; }
+  .b-mask     .block-label { color: #86efac; }
+  .b-out      .block-label { color: #4ade80; }
+
+  /* Dual-path container */
+  .dpath-container {
+    width: 100%;
+    border: 1px solid #0e4a6a;
+    border-radius: 12px;
+    padding: 10px;
+    background: #080f18;
+    position: relative;
+  }
+
+  .dpath-header {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #38bdf8;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .repeat-badge {
+    background: #0e3a52;
+    color: #38bdf8;
+    font-size: 0.65rem;
+    padding: 1px 7px;
+    border-radius: 10px;
+    border: 1px solid #164e6360;
+  }
+
+  .dpath-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  /* Arrows */
+  .arrow {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 22px;
+    color: #334155;
+    font-size: 18px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .arrow-label {
+    font-size: 0.62rem;
+    color: #475569;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .arrow-row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    height: 28px;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* Dims pill */
+  .dim {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    background: #0f172a;
+    border: 1px solid #1e2d42;
+    color: #64748b;
+    border-radius: 4px;
+    padding: 1px 6px;
+    margin-top: 3px;
+  }
+
+  .highlight-good { color: #4ade80; font-weight: 600; }
+  .highlight-warn { color: #fb923c; font-weight: 600; }
+
+  /* Separator */
+  .sep {
+    width: 100%;
+    height: 1px;
+    background: #1e2535;
+    margin: 28px 0 20px;
+  }
+
+  .stats-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 0;
+  }
+
+  .stat-box {
+    flex: 1;
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: #0d1117;
+    border: 1px solid #1e2535;
+    text-align: center;
+  }
+
+  .stat-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+
+  .stat-label {
+    font-size: 0.68rem;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .crn .stat-value { color: #818cf8; }
+  .dpt .stat-value { color: #34d399; }
+
+  /* Comparison footer */
+  .comparison-strip {
+    max-width: 1300px;
+    margin: 40px auto 0;
+    background: #131720;
+    border: 1px solid #1e2535;
+    border-radius: 16px;
+    padding: 24px 32px;
+    display: flex;
+    gap: 24px;
+    align-items: stretch;
+  }
+
+  .comp-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .comp-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+  }
+
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 3px;
+  }
+
+  .bar-name {
+    font-size: 0.72rem;
+    width: 32px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .bar-name.crn-name { color: #818cf8; }
+  .bar-name.dpt-name { color: #34d399; }
+
+  .bar-bg {
+    flex: 1;
+    height: 8px;
+    background: #1e2535;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 4px;
+  }
+
+  .bar-fill-crn { background: linear-gradient(90deg, #6366f1, #818cf8); }
+  .bar-fill-dpt { background: linear-gradient(90deg, #10b981, #34d399); }
+
+  .bar-val {
+    font-size: 0.72rem;
+    font-family: 'JetBrains Mono', monospace;
+    color: #64748b;
+    width: 56px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .comp-divider {
+    width: 1px;
+    background: #1e2535;
+    flex-shrink: 0;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .diagrams-wrapper { flex-direction: column; }
+    .comparison-strip { flex-direction: column; }
+    .comp-divider { width: 100%; height: 1px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Model Architecture Comparison</h1>
+<p class="subtitle">CRN Baseline &nbsp;·&nbsp; Dual-Path Transformer (DPT) &nbsp;·&nbsp; Lightweight Speech Enhancement</p>
+
+<div class="diagrams-wrapper">
+
+  <!-- ===================== CRN ===================== -->
+  <div class="arch-card crn">
+    <div class="arch-title">CRN — Conv-Recurrent Network</div>
+    <div class="arch-subtitle">Baseline Architecture</div>
+    <div class="arch-meta">
+      <span class="badge badge-params-crn">1.81M params</span>
+      <span class="badge badge-lstm">LSTM Core</span>
+      <span class="badge badge-warn">Exceeds 1M goal</span>
+    </div>
+
+    <div class="pipeline">
+
+      <div class="block b-input">
+        <div class="block-label">Noisy Waveform</div>
+        <div class="block-detail">Single-channel · 16 kHz · variable length</div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-stft">
+        <div class="block-label">STFT</div>
+        <div class="block-detail">N_FFT=512 · Hop=256 · Window=Hann
+<span class="dim">[B, 257, T] complex → log-magnitude</span></div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-enc-crn">
+        <div class="block-label">CNN Encoder</div>
+        <div class="block-detail">3 × Conv2d (stride-2, freq axis)
+channels: 1 → 16 → 32 → 64
+<span class="dim">[B, 64, F/8, T]</span></div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-lstm">
+        <div class="block-label">Per-Frequency LSTM</div>
+        <div class="block-detail">Reshape: [B·F', T, 64] → LSTM(hidden=256, layers=2)
+Bidirectional=False · Sequential over T
+FC: 256 → 64 per freq bin
+<span class="dim">[B, 64, F/8, T]</span></div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-dec-crn">
+        <div class="block-label">CNN Decoder</div>
+        <div class="block-detail">3 × ConvTranspose2d (stride-2, freq axis)
+channels: 64 → 32 → 16 → 1
+Skip connections from encoder (U-Net)
+<span class="dim">[B, 1, 257, T]</span></div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-mask">
+        <div class="block-label">Sigmoid Mask</div>
+        <div class="block-detail">Element-wise multiply with noisy magnitude
+Mask ∈ (0, 1) · preserves original phase</div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-out">
+        <div class="block-label">iSTFT → Clean Waveform</div>
+        <div class="block-detail">Reconstruct with original phase</div>
+      </div>
+
+    </div>
+
+    <div class="sep"></div>
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-value">1.81M</div>
+        <div class="stat-label">Parameters</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value">1.630</div>
+        <div class="stat-label">PESQ</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value">8.62 dB</div>
+        <div class="stat-label">SI-SDR</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== DPT ===================== -->
+  <div class="arch-card dpt">
+    <div class="arch-title">DPT — Dual-Path Transformer</div>
+    <div class="arch-subtitle">Proposed Architecture</div>
+    <div class="arch-meta">
+      <span class="badge badge-params-dpt">0.90M params</span>
+      <span class="badge badge-transformer">Attention Core</span>
+      <span class="badge badge-ok">Goal met ✓</span>
+    </div>
+
+    <div class="pipeline">
+
+      <div class="block b-input">
+        <div class="block-label">Noisy Waveform</div>
+        <div class="block-detail">Single-channel · 16 kHz · variable length</div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-stft">
+        <div class="block-label">STFT</div>
+        <div class="block-detail">N_FFT=512 · Hop=256 · Window=Hann
+<span class="dim">[B, 257, T] complex → log-magnitude</span></div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-enc-dpt">
+        <div class="block-label">CNN Encoder</div>
+        <div class="block-detail">2 × Conv2d (stride-2, freq axis)
+channels: 1 → 32 → 64
+<span class="dim">[B, 64, F/4, T]</span></div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <!-- Dual-path container (×2) -->
+      <div class="dpath-container">
+        <div class="dpath-header">
+          Dual-Path Block
+          <span class="repeat-badge">× 2</span>
+        </div>
+        <div class="dpath-inner">
+          <div class="block b-freq">
+            <div class="block-label">Frequency Transformer</div>
+            <div class="block-detail">Reshape → [B·T, F', 64]
+TransformerEncoderLayer · Pre-LN
+nhead=4 · dim_ffn=256
+attends across 65 freq bins
+<span class="dim">→ [B, 64, F/4, T]</span></div>
+          </div>
+          <div class="arrow-row" style="height:14px;"><div class="arrow" style="font-size:13px;color:#164e63;">↓</div></div>
+          <div class="block b-time">
+            <div class="block-label">Time Transformer</div>
+            <div class="block-detail">Reshape → [B·F', T, 64]
+TransformerEncoderLayer · Pre-LN
+nhead=4 · dim_ffn=256
+attends across all T frames
+<span class="dim">→ [B, 64, F/4, T]</span></div>
+          </div>
+          <div class="arrow-row" style="height:14px;"><div class="arrow" style="font-size:13px;color:#164e63;">↓</div></div>
+          <div style="font-size:0.68rem;color:#38bdf8;font-family:'JetBrains Mono',monospace;padding:4px 8px;">
+            + Residual skip from block input
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-dec-dpt">
+        <div class="block-label">CNN Decoder</div>
+        <div class="block-detail">2 × ConvTranspose2d (stride-2, freq axis)
+channels: 64 → 32 → 1
+Skip connections from encoder (U-Net)
+<span class="dim">[B, 1, 257, T]</span></div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-mask">
+        <div class="block-label">Sigmoid Mask</div>
+        <div class="block-detail">Element-wise multiply with noisy magnitude
+Mask ∈ (0, 1) · preserves original phase</div>
+      </div>
+
+      <div class="arrow-row"><div class="arrow">↓</div></div>
+
+      <div class="block b-out">
+        <div class="block-label">iSTFT → Clean Waveform</div>
+        <div class="block-detail">Reconstruct with original phase</div>
+      </div>
+
+    </div>
+
+    <div class="sep"></div>
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-value">0.90M</div>
+        <div class="stat-label">Parameters</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value">1.692</div>
+        <div class="stat-label">PESQ</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value">9.05 dB</div>
+        <div class="stat-label">SI-SDR</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Comparison bars -->
+<div class="comparison-strip">
+
+  <div class="comp-item">
+    <div class="comp-label">Parameters (M) — lower is better</div>
+    <div class="bar-row">
+      <span class="bar-name crn-name">CRN</span>
+      <div class="bar-bg"><div class="bar-fill bar-fill-crn" style="width:100%"></div></div>
+      <span class="bar-val">1.81M ✗</span>
+    </div>
+    <div class="bar-row">
+      <span class="bar-name dpt-name">DPT</span>
+      <div class="bar-bg"><div class="bar-fill bar-fill-dpt" style="width:49.7%"></div></div>
+      <span class="bar-val">0.90M ✓</span>
+    </div>
+  </div>
+
+  <div class="comp-divider"></div>
+
+  <div class="comp-item">
+    <div class="comp-label">PESQ — higher is better</div>
+    <div class="bar-row">
+      <span class="bar-name crn-name">CRN</span>
+      <div class="bar-bg"><div class="bar-fill bar-fill-crn" style="width:96.3%"></div></div>
+      <span class="bar-val">1.630</span>
+    </div>
+    <div class="bar-row">
+      <span class="bar-name dpt-name">DPT</span>
+      <div class="bar-bg"><div class="bar-fill bar-fill-dpt" style="width:100%"></div></div>
+      <span class="bar-val">1.692</span>
+    </div>
+  </div>
+
+  <div class="comp-divider"></div>
+
+  <div class="comp-item">
+    <div class="comp-label">SI-SDR (dB) — higher is better</div>
+    <div class="bar-row">
+      <span class="bar-name crn-name">CRN</span>
+      <div class="bar-bg"><div class="bar-fill bar-fill-crn" style="width:95.2%"></div></div>
+      <span class="bar-val">8.62 dB</span>
+    </div>
+    <div class="bar-row">
+      <span class="bar-name dpt-name">DPT</span>
+      <div class="bar-bg"><div class="bar-fill bar-fill-dpt" style="width:100%"></div></div>
+      <span class="bar-val">9.05 dB</span>
+    </div>
+  </div>
+
+  <div class="comp-divider"></div>
+
+  <div class="comp-item">
+    <div class="comp-label">STOI — higher is better</div>
+    <div class="bar-row">
+      <span class="bar-name crn-name">CRN</span>
+      <div class="bar-bg"><div class="bar-fill bar-fill-crn" style="width:99.8%"></div></div>
+      <span class="bar-val">0.864</span>
+    </div>
+    <div class="bar-row">
+      <span class="bar-name dpt-name">DPT</span>
+      <div class="bar-bg"><div class="bar-fill bar-fill-dpt" style="width:100%"></div></div>
+      <span class="bar-val">0.866</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
