@@ -1,4 +1,4 @@
-_Use this proactively for long term memory — LAST UPDATED: Feb 25, 2026_
+_Use this proactively for long term memory — LAST UPDATED: Feb 26, 2026_
 
 ---
 
@@ -35,8 +35,8 @@ _Use this proactively for long term memory — LAST UPDATED: Feb 25, 2026_
 - Review 2 Transformer: to be created
 
 ## Key Technical Notes
-- LSTM input bug in CRN (was 256×128=32768) → fixed by mean-pooling freq dim before LSTM
-- PESQ/STOI in evaluation is ESTIMATED (no waveform reconstruction, no Griffin-Lim)
+- LSTM input bug in CRN (was 256×128=32768) → fixed by per-frequency LSTM in CRN Fixed
+- Original CRN: PESQ/STOI was **ESTIMATED** via formula (fake!) — CRN Fixed has real ISTFT eval
 - Training uses L1 loss on log-mel spectrogram domain
 - Optimizer: Adam lr=1e-3, ReduceLROnPlateau scheduler (factor=0.5, patience=5)
 - Grad clipping max_norm=5.0
@@ -227,11 +227,14 @@ STFT (n_fft=512, hop=128) → magnitude → mask → ISTFT with original phase �
 ## Kaggle Notebooks Registry
 | Notebook | Kaggle Slug | ID | Status |
 |----------|-------------|-----|--------|
-| CRN Baseline (R1) | `kjadeja/baseline-crn-speechenhance` | — | COMPLETE, PESQ=3.10 |
+| CRN Baseline (R1) | `kjadeja/baseline-crn-speechenhance` | — | COMPLETE, PESQ=3.10 (ESTIMATED — fake!) |
+| CRN Fixed (R1) | `kjadeja/crn-baseline-fixed-stft-speech-enhancement` | 110475041 | COMPLETE, PESQ=1.144, **CROP BUG** |
 | Transformer R2 | `kjadeja/review-2-cnn-transformer-speech-enhancement` | 110344085 | COMPLETE, PESQ=1.141 (**FAILED**) |
 | STFT Transformer R3 | `kjadeja/review-3-stft-transformer-speech-enhancement` | 110421493 | v3 trained 25ep, eval COMPLETE |
 | R3 Eval Only | `kjadeja/review-3-eval-stft-transformer` | 110458458 | Eval ran locally instead (Kaggle input mount issues) |
-| R3 DPT | `kjadeja/review-3-dpt-stft-speech-enhancement` | 110473038 | v1 RUNNING (training + eval SaveAndRunAll) |
+| R3 DPT v1 | `kjadeja/review-3-dpt-stft-speech-enhancement` | 110473038 | COMPLETE, PESQ=1.071, **CROP BUG** |
+| **CRN v2** | `kjadeja/crn-v2-aligned-speech-enhancement` | 110524198 | **v2 COMPLETE** — PESQ=1.630 (+0.467) |
+| **DPT v2** | `kjadeja/dpt-v2-aligned-speech-enhancement` | 110525753 | **v2 COMPLETE** — PESQ=1.692 (+0.529) |
 
 ---
 
@@ -354,14 +357,199 @@ Params: 904,705 (0.90M) — 63% smaller than R3v1's 2.45M
 - `dpt_nb_text.txt` — extracted notebook text (26,655 chars)
 - `validate_cells.py` — syntax validation script
 
+### DPT Results — COMPLETED Feb 24, 2026
+**Training:** 30 epochs (full run, no early stop), best_ep=30, best_val=0.1006, time=12916s (~3.6h)
+**Val loss:** 0.1031 (ep1) → 0.1006 (ep30) — only 2.4% improvement, LR dropped to 5e-4 at ep29
+
+| Metric | Noisy | DPT Enhanced | Delta |
+|--------|-------|-------------|-------|
+| PESQ | 1.109 | **1.071** | **-0.039** |
+| STOI | 0.218 | **0.339** | **+0.121** |
+| SI-SDR | -43.34 dB | **-40.49 dB** | **+2.84 dB** |
+
+**DPT FAILED on PESQ — still degrades speech quality.** STOI and SI-SDR improved but PESQ got worse.
+Despite fixing the frequency bottleneck, the DPT cannot learn meaningful spectral masking with this loss function and training setup.
+
 ---
 
-### Critical Observation — Loss Barely Moved:
-- Val loss: 0.1072 → 0.1050 = **only 2% improvement** over 25 epochs
-- Compare R2 (mel): 0.1764 → 0.1485 = 16% improvement
-- R3 starting loss is MUCH lower (0.107 vs 0.176) — STFT magnitude is inherently closer to clean
-- **CONFIRMED:** model producing near-identity masks, enhanced ≈ noisy (PESQ 1.089 ≈ noisy 1.163)
-- The model slightly DEGRADES audio rather than enhancing it
+---
+
+## CRN Baseline Fixed — STFT-Based (COMPLETE)
+
+**Kaggle:** `kjadeja/crn-baseline-fixed-stft-speech-enhancement` (ID: 110475041)
+**Status:** v1 COMPLETE
+**URL:** https://www.kaggle.com/code/kjadeja/crn-baseline-fixed-stft-speech-enhancement
+
+### Why This Was Needed:
+The original CRN baseline (`kjadeja/baseline-crn-speechenhance`) had 5 critical issues:
+1. **Fake eval metrics** — PESQ estimated via `pesq_noisy + (improvement_ratio - 1.0) * 0.5`, not real waveforms
+2. **Mel spectrogram pipeline** — non-invertible, no ISTFT possible
+3. **`mean(dim=2)` frequency collapse** — same bottleneck as R3v1
+4. **Training code cells commented out** — messy duplicate cells
+5. **Dead/commented code** throughout
+
+The "PESQ ~3.10" from the original CRN was **NEVER REAL** — it was a formula estimate.
+
+### Architecture: CRNBaseline (Fixed)
+```
+Input: (B, 1, 257, T) ← log1p(STFT magnitude)
+  → CNN Encoder (stride (2,1) on freq):
+    Conv2d(1→64, k=3, s=(2,1), p=1) + BN + ReLU     → (B, 64, 129, T)
+    Conv2d(64→128, k=3, s=(2,1), p=1) + BN + ReLU   → (B, 128, 65, T)
+    Conv2d(128→256, k=3, s=(2,1), p=1) + BN + ReLU  → (B, 256, 33, T)
+  → Per-frequency LSTM: reshape (B,256,33,T) → (B*33, T, 256) → LSTM(256, 256, 2 layers, dropout=0.1)
+  → CNN Decoder (transposed conv):
+    ConvT2d(256→128, k=3, s=(2,1)) + BN + ReLU      → (B, 128, 66, T)
+    ConvT2d(128→64, k=3, s=(2,1)) + BN + ReLU       → (B, 64, 132, T)
+    ConvT2d(64→32, k=3, s=(2,1)) + BN + ReLU        → (B, 32, 264, T)
+  → F.interpolate bilinear to (B, 32, 257, T) [fallback for freq mismatch]
+  → Conv2d(32→1, k=1) + Sigmoid → mask (B, 257, T)
+Output: mask × noisy_mag → exp(j·noisy_phase) → ISTFT → waveform
+Params: 1,811,009 (1.81M)
+```
+
+### Architecture Breakdown:
+- Encoder:  370,560 (20.5%)
+- LSTM:   1,052,672 (58.1%)
+- Decoder:  387,777 (21.4%)
+
+### Training Config:
+- batch=16, 25 epochs, patience=10
+- Adam lr=1e-3, weight_decay=1e-5
+- ReduceLROnPlateau(factor=0.5, patience=5)
+- Grad clip: max_norm=5.0
+- L1 loss on log1p(magnitude)
+- STFT: n_fft=512, hop_length=256, N_FREQ=257
+
+### Key Differences from Original CRN:
+- STFT (lossless ISTFT) instead of Mel (non-invertible)
+- Per-frequency LSTM: `(B*33, T, 256)` — each freq sub-band gets temporal modeling
+- Proper encoder-decoder with stride-2 convolutions + transposed convolutions
+- Real PESQ/STOI/SI-SDR via ISTFT waveform reconstruction
+- Saves checkpoint as `crn_baseline_best.pth`
+- Outputs `crn_baseline_summary.json` with all metrics
+
+### Files:
+- `build_crn_fixed.py` — notebook generator script
+- `kaggle_crn_fixed_nb.json` — Kaggle push payload
+- `crn_nb_text.txt` — extracted notebook text (26,083 chars)
+- `validate_crn.py` — syntax validation script
+- `test_crn_model.py` — local forward-pass test
+
+### CRN Fixed Results — COMPLETED Feb 24, 2026
+**Training:** 25 epochs (no early stop), best_ep=22, best_val=0.1009, time=6765s (~1.9h)
+**Val loss:** 0.1065 (ep1) → 0.1009 (ep22) — only 5.3% improvement, LR dropped to 5e-4 at ep13
+
+| Metric | Noisy | CRN Fixed | Delta |
+|--------|-------|-----------|-------|
+| PESQ | 1.126 | **1.144** | **+0.017** |
+| STOI | 0.215 | **0.336** | **+0.121** |
+| SI-SDR | -44.04 dB | **-41.03 dB** | **+3.01 dB** |
+
+**CRN Fixed is the ONLY model that improves PESQ over noisy baseline.** But the improvement is tiny (+0.017).
+Note: Noisy STOI=0.215 and SI-SDR=-44dB are suspiciously different from R3v1 local eval (STOI=0.722, SI-SDR=-0.25dB).
+This suggests the test data is being loaded differently (possibly different random crops or padding).
+
+---
+
+---
+
+## v2 NOTEBOOKS — ALIGNED CROP FIX (Pushed Feb 25, 2026)
+
+### ROOT CAUSE DISCOVERY — Crop Misalignment Bug
+**THE BUG:** In v1 notebooks (CRN Fixed, DPT, R3), `_load_fix()` was called INDEPENDENTLY for noisy and clean files. Each call generated its OWN random crop position via `torch.randint`. Since WAV files are 16-24 seconds long (NOT 1 second as dataset description misleadingly stated) and crops are 3 seconds, the noisy and clean waveforms came from COMPLETELY DIFFERENT time positions.
+
+**Evidence of the bug in v1 results:**
+- Noisy STOI = 0.215 (should be ~0.7-0.8 for aligned pairs)
+- Noisy SI-SDR = -44 dB (should be ~-0.25 to 5 dB for aligned pairs)
+- Loss plateau at ~0.100 for ALL models (can't learn from mismatched pairs)
+
+**THE FIX:** `__getitem__` now loads BOTH files, computes ONE random start position, and crops BOTH at the same position. Test mode uses `start=0` for deterministic evaluation.
+
+### Actual File Lengths (verified):
+- Min duration: 16.600s, Max: 24.525s, Mean: 16.912s
+- Clean files same: Min 16.600s, Max 24.525s, Mean 16.913s
+- All at 16kHz sample rate
+
+### CRN v2 — Aligned Crop Fix — COMPLETE
+**Kaggle:** `kjadeja/crn-v2-aligned-speech-enhancement` (ID: 110524198, v2)
+**Status:** COMPLETE — 30 epochs, best_ep=30, best_val=0.0534, time=8041s (~2.2h)
+**URL:** https://www.kaggle.com/code/kjadeja/crn-v2-aligned-speech-enhancement
+- Architecture: CRNBaseline (1,811,009 params) — CNN Encoder + per-freq LSTM + CNN Decoder
+- Aligned crop fix + correlation sanity check (corr=0.8578, PASSED)
+- batch=16, 30 epochs, patience=10, LR=1e-3 (dropped to 5e-4 at ep29)
+- L1 loss on log1p(magnitude)
+- v1 failed with `torchaudio.info` error → v2.1 fix applied
+
+| Metric | Noisy | CRN v2 Enhanced | Delta |
+|--------|-------|----------------|-------|
+| PESQ | 1.163 | **1.630** | **+0.467** |
+| STOI | 0.722 | **0.864** | **+0.141** |
+| SI-SDR | -0.25 dB | **8.62 dB** | **+8.86 dB** |
+
+### DPT v2 — Aligned Crop Fix — COMPLETE
+**Kaggle:** `kjadeja/dpt-v2-aligned-speech-enhancement` (ID: 110525753, v2)
+**Status:** COMPLETE — 30 epochs, best_ep=29, best_val=0.0513, time=12917s (~3.6h)
+**URL:** https://www.kaggle.com/code/kjadeja/dpt-v2-aligned-speech-enhancement
+- Architecture: DPTSTFTEnhancer (904,705 params) — CNN Encoder + Dual-Path Transformer + CNN Decoder
+- Aligned crop fix + correlation sanity check (corr=0.8578, PASSED)
+- batch=8, 30 epochs, patience=12, warmup=3 epochs, LR=1e-3 (stayed at 1e-3 entire run)
+- v1 failed with `torchaudio.info` error → v2.1 fix applied
+
+| Metric | Noisy | DPT v2 Enhanced | Delta |
+|--------|-------|----------------|-------|
+| PESQ | 1.163 | **1.692** | **+0.529** |
+| STOI | 0.722 | **0.866** | **+0.144** |
+| SI-SDR | -0.25 dB | **9.05 dB** | **+9.30 dB** |
+
+### Key Results Summary:
+- **DPT v2 beats CRN v2** on ALL metrics with HALF the parameters (0.9M vs 1.8M)
+- Val loss halved from v1's 0.10 plateau → 0.05 — confirms crop misalignment was THE root cause
+- Noisy baseline now CORRECT: STOI=0.722, SI-SDR=-0.25dB (vs v1 broken: STOI=0.215, SI-SDR=-44dB)
+- Alignment check: noisy-clean correlation = 0.8578 (both notebooks)
+- PESQ ~1.6-1.7 is a realistic result for this dataset/model size — NOT the fake 3.10 from R1
+
+### Build Files:
+- `build_crn_v2.py` — 683 lines, notebook generator with aligned crop fix (v2.1: torchaudio fix at line 163)
+- `build_dpt_v2.py` — 693 lines, notebook generator with aligned crop fix (v2.1: torchaudio fix at line 161)
+- `crn_v2_nb_text.txt` — 28,324 chars, 19 cells (regenerated Feb 26)
+- `dpt_v2_nb_text.txt` — 28,465 chars, 19 cells (regenerated Feb 26)
+- `smoke_test.py` — local validation harness (tests imports, dataset class, model class, forward pass, loss, SI-SDR)
+
+### v2.1 Fix — torchaudio.info Removed (Feb 26, 2026)
+**Error:** `AttributeError: module 'torchaudio' has no attribute 'info'`
+**Root cause:** Kaggle's newer torchaudio removed the `info()` function entirely.
+**Fix:** Replaced `torchaudio.info(fp)` with `torchaudio.load(fp)` + `wav.shape[-1]` for frame count.
+```python
+# OLD (broken):
+info = torchaudio.info(fp)
+dur = info.num_frames / info.sample_rate
+
+# NEW (working):
+wav, sr = torchaudio.load(fp)
+num_frames = wav.shape[-1]
+dur = num_frames / sr
+```
+**Validation:** Local smoke test passes all 6 checks for both CRN and DPT.
+
+### PyTorch/torchaudio Kaggle Compat Issues (Complete List):
+1. `torch.cuda.get_device_properties(0).total_mem` → use `getattr` fallback for `total_memory`/`total_mem`
+2. `ReduceLROnPlateau(verbose=False)` → `verbose` param removed in newer PyTorch — don't use it
+3. `torch.load()` defaults to `weights_only=True` → explicitly use `weights_only=False`
+4. **`torchaudio.info()` removed** → use `torchaudio.load()` + `wav.shape[-1]` for frame count
+
+---
+
+### v1 vs v2 Loss Comparison (proves crop fix was the root cause):
+- **v1 (misaligned):** val loss plateau at ~0.100 for ALL models → near-identity masks → PESQ degraded
+- **v2 (aligned):** val loss dropped to ~0.05 → real spectral masks → PESQ improved by +0.5
+- Val loss improvement: ~50% reduction (0.10 → 0.05) proves data quality was the bottleneck
+
+### OBSOLETE — Critical Observation (v1 only, fixed in v2):
+_These observations from R3 v1 are now explained by the crop misalignment bug:_
+- Val loss barely moved (0.1072 → 0.1050) because model was learning from mismatched pairs
+- Near-identity masks were the model's rational response to unrelated noisy/clean inputs
+- All architectures plateauing at same loss = data bug, not architecture problem
 
 ### Architecture Bottleneck Identified:
 - `mean(dim=2)` collapses ALL 257 frequency bins into a single vector per time step
